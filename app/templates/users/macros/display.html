@@ -1,0 +1,38 @@
+{% macro display_model(obj, fields=None, exclude=None) %}
+<dl class="row mb-0">
+    {% if obj is mapping %}
+        {% set items = obj.items() %}
+    {% else %}
+        {% set items = obj.__dict__.items() %}
+    {% endif %}
+    
+    {% for key, value in items %}
+        {% if not key.startswith('_') and (not fields or key in fields) and (not exclude or key not in exclude) %}
+            <dt class="col-sm-4 text-muted">{{ key|replace('_', ' ')|title }}</dt>
+            <dd class="col-sm-8">{{ format_value(value) }}</dd>
+        {% endif %}
+    {% endfor %}
+</dl>
+{% endmacro %}
+
+{% macro format_value(value) %}
+    {% if value is none %}
+        <em class="text-muted">Not set</em>
+    {% elif value is sameas true %}
+        <span classall="badge bg-success">Yes</span>
+    {% elif value is sameas false %}
+        <span class="badge bg-secondary">No</span>
+    {% elif value.__class__.__name__ == 'datetime' %}
+        {{ value.strftime('%Y-%m-%d %H:%M:%S') }}
+    {% elif value.__class__.__name__ == 'date' %}
+        {{ value.strftime('%Y-%m-%d') }}
+    {% elif value is iterable and value is not string and value is not mapping %}
+        <ul class="list-unstyled mb-0">
+            {% for item in value %}
+                <li>{{ item }}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        {{ value }}
+    {% endif %}
+{% endmacro %}

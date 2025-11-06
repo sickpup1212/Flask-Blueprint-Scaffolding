@@ -1,0 +1,49 @@
+{% macro render_form(form, action="", method="post", submit_text="Submit", cancel_url=None) %}
+<form method="{{ method }}" action="{{ action }}" novalidate>
+    {{ form.hidden_tag() }}
+    
+    {% for field in form if field.widget.input_type != 'hidden' and field.name not in ['csrf_token', 'submit'] %}
+        {{ render_field(field) }}
+    {% endfor %}
+    
+    <div class="form-actions mt-4">
+        {{ form.submit(class="btn btn-primary") }}
+        {% if cancel_url %}
+            <a href="{{ cancel_url }}" class="btn btn-secondary ms-2">Cancel</a>
+        {% endif %}
+    </div>
+</form>
+{% endmacro %}
+
+{% macro render_field(field, label_visible=true) %}
+<div class="mb-3 {% if field.errors %}has-error{% endif %}">
+    {% if label_visible and field.type not in ['HiddenField', 'BooleanField'] %}
+        {{ field.label(class="form-label") }}
+    {% endif %}
+    
+    {% if field.type == 'BooleanField' %}
+        <div class="form-check">
+            {{ field(class="form-check-input" + (" is-invalid" if field.errors else "")) }}
+            {{ field.label(class="form-check-label") }}
+        </div>
+    {% elif field.type == 'SelectField' %}
+        {{ field(class="form-select" + (" is-invalid" if field.errors else "")) }}
+    {% elif field.type == 'TextAreaField' %}
+        {{ field(class="form-control" + (" is-invalid" if field.errors else ""), rows=4) }}
+    {% else %}
+        {{ field(class="form-control" + (" is-invalid" if field.errors else "")) }}
+    {% endif %}
+    
+    {% if field.description %}
+        <small class="form-text text-muted d-block mt-1">{{ field.description }}</small>
+    {% endif %}
+    
+    {% if field.errors %}
+        <div class="invalid-feedback d-block">
+            {% for error in field.errors %}
+                <span>{{ error }}</span>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>
+{% endmacro %}

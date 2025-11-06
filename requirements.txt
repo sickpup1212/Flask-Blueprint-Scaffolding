@@ -1,0 +1,10 @@
+Flask
+Flask-WTF
+WTForms
+Flask-SQLAlchemy
+SQLAlchemy
+pydantic
+Flask-Login
+flask-cors
+psycopg2-binary
+python-dotenv

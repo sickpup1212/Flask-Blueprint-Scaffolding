@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% import "users/macros/display.html" as display %}
+
+{% block title %}User List{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>User List</h1>
+        <a href="{{ url_for('users.create_users') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> Create New User
+        </a>
+    </div>
+
+    {% if items %}
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        {% for field in ['username', 'password_hash'] %}
+                        <th>{{ field|replace('_', ' ')|title }}</th>
+                        {% endfor %}
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        {% for field in ['username', 'password_hash'] %}
+                        <td>{{ display.format_value(item[field]) }}</td>
+                        {% endfor %}
+                        <td class="text-end">
+                            <a href="{{ url_for('users.view_users', id=item.id) }}" 
+                               class="btn btn-sm btn-info">View</a>
+                            <a href="{{ url_for('users.edit_users', id=item.id) }}" 
+                               class="btn btn-sm btn-warning">Edit</a>
+                            <form method="POST" 
+                                  action="{{ url_for('users.delete_users', id=item.id) }}" 
+                                  style="display:inline;"
+                                  onsubmit="return confirm('Are you sure you want to delete this User?');">
+                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            No User records found. <a href="{{ url_for('users.create_users') }}">Create one now</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
