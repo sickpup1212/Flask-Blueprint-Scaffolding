@@ -24,7 +24,7 @@ there are already three models in there you can use to test it out or you can pu
      after the scaffolding has been run.
 
   2. make each of your model (sqlalchemy) classes a singular name (Product, or Client)
-     and make your \_\_tablename\_\_ the singular version (products, clients)
+     and make your \_\_tablename\_\_ the pluralized version (products, clients)
      bp_name, model_table_name, \_\_tablename\_\_, blueprint_name are all the same thing: lower case and pluralized versions of your singluar named model/class 
 
 go back to root folder (cd ..)
