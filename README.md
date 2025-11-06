@@ -1,56 +1,121 @@
-clone the project
+# Flask-Blueprint-Scaffold
 
-cd into it
+**git clone https://github.com/sickpup1212/Flask-Blueprint-Scaffolding.git**
 
-create a virtual environment
+**cd Flask-Blueprint-Scaffolding**
 
-source env/bin/activate
+**python3 -m venv env**
 
-pip install -r requirements
+**source env/bin/activate**
 
-touch .env
+**pip install -r requirements**
 
-add your postgresql connection string to your .env file @ POSTGRESQL_CONN_STRING
+**echo 'POSTGRESQL_CONN_STRING={your_postgres_connection_string)' >> .env**
 
-go look at app/models.py
+## your Flask-SQLAlchemy models dictate the build out
 
-there are already three models in there you can use to test it out or you can put your own
+**cat app/models.py**
 
-!!!!if you put your own!!!!
+### !!!! **when using your models instead of the default rememeber** !!!!
 
-  1. DO NOT PUT ANY SQLALCHEMY MODEL CLASS PERTAINING TO USER AUTHENTICATION OR NAMED 'User'
-     THERE IS A SINGLE MODEL/CLASS THAT ALREADY EXISTS CALLED 'User' tablename 'users'
-     AND IT HAS AUTHENTICATION SET UP ALREADY.  This wont show up in app/models.py until
-     after the scaffolding has been run.
+  1. ***DO NOT*** ADD ANY CLASSES/MODELS PERTAINING TO USER AUTHENTICATION
+  
+  2. **DO NOT** ADD ANY CLASSES/MODELS called 'User'
+  
+  3. **DO** USE THE MODEL/CLASS THAT ALREADY EXISTS CALLED 'User' (\_\_tablename\_\_ 'users')
+  
+  4. **THIS User Class** will not appear in app/models.py until **AFTER** the scaffold has been run.
 
-  2. make each of your model (sqlalchemy) classes a singular name (Product, or Client)
-     and make your \_\_tablename\_\_ the pluralized version (products, clients)
-     bp_name, model_table_name, \_\_tablename\_\_, blueprint_name are all the same thing: lower case and pluralized versions of your singluar named model/class 
+  5.  **DO** make each of your model/classes a singular name (Product, or Client)
+  6.  **DO** make your \_\_tablename\_\_ the pluralized version (products, clients)
+  7.  **REMEMBER THAT**
 
-go back to root folder (cd ..)
+      1.bp_name
 
-run scaffolding (python3 generate_scaffolding.py)
+      2.model_table_name,
 
-now you have created a blueprint, a form.py, a routes.py, and 5 views/endpoints create, list, edit, view, delete for each model in your app/model.py
+      3.\_\_tablename\_\_ and
 
-you need to add 'from {bp_name} import {bp_name}_bp' statements and 'app.blueprint_register({bp_name}_bp)' methods to app/app.py before running the app and they need to go all within the create_app function. yes the imports go in the function.
+      4.blueprint_name
 
-look inside the templates folder to see the .html files and macros for each model
+      are **all** refering to the same thing: the lower case and pluralized versions of your singluar named model/class
 
-The users blueprint has a couple endpoints and templates that no other class will get which are:
+      -- **example** -- class/singular: **Product** table/plural: **products**
 
- ---- /users/login and login.html
+**cd ..**
+
+**python3 generate_scaffolding.py**
+
+## for EVERY MODEL definition in app/models.py
+
+### You Get:
+
+   - a ***blueprint diretory*** containing:
+     
+   - a **form.py** with forms made from your model
+     
+   - a **routes.py** with:
+
+     - 5 views/endpoints:
+       
+         - create
+           
+         - list
+           
+         - edit
+           
+         - view
+           
+         - delete
+
+### You Must:
+
+   - **ADD**:
+     
+     **'from {bp_name} import {bp_name}_bp'**
+     
+     and
+     
+     **'app.blueprint_register({bp_name}_bp)'**
+     
+     to **app/app.py** inside the **create_app** function.
+
+## Start Server
+
+**python3 app/app.py** from your root directory 
+
+or
+
+**python3 app.py** from app/
+
+.html files and macros in templates/{bp_name}
+
+### The **users** blueprint has a couple **endpoints** and **templates** that no other class will get which are:
+
+ ---- **/users/login** and **login.html**
  
- ---- /users/register and register.html
+ ---- **/users/register** and **register.html**
 
-so instead of creating users by going to /users/create you need to go to users/register
+**DO NOT** create users by going to **users/create**
 
-this is the first endpoint you need to go to upon first running the server successfully because everying is
+**DO** create users by going to **users/register**
 
-@login_required protected.  Register your account, the login (both using /users/) and then you can navigate anywhere
+Most routes are **@login_required** protected 
 
-if you have any child/parent dependant relationships the model the child model will not get a create endpoint 
+**users/register** and **users/login** are not protected.  
 
-instead the functionality to create the child instances will be at /{parent_model_name}/\<id\>/add-product
+users MUST **register** and **login** to be able to do/see anything
 
-the \<id\> is the id of the parent instance you want to add the child too.  so you have to create a parent instances first @ /{parent_model_name}/create
+# IMPORTANT
+
+## CHILD PARENT RELATIONSHIPS
+
+When using a child/parent relationship in your model, the child model will not get a **/create** endpoint 
+
+Instead of **/create** you can use **/{parent_model_name}/\<id\>/add-{child_name_lowercase_and_singular}** AFTER you create at least one instance of the parent. 
+
+   - example: **clients/1/add-product** if your classes are **Client** and **Product** and respective **\_\_tablenames\_\_** are **'clients'** and **'products'** 
+
+   - the **\<id\>** is the id of the parent instance.  the default is they increment serially from 1, **1 being the first instance**.
+
+   - So in order to add a **product** to your 5th **client** the **endpoint** would look like **clients/5/add-product**.
