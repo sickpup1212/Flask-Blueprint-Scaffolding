@@ -183,8 +183,8 @@ class ScaffoldGenerator:
             fields = {}
             user_fk_field = None
             non_user_fk_count = 0
-            foreign_key_relationships = []  # ← NEW: Track FK relationships
-            relationships = []  # ← NEW: Track db.relationship() declarations
+            foreign_key_relationships = []
+            relationships = []
 
             for col_name, col_def in column_lines:
                 # Parse column definition
@@ -202,7 +202,7 @@ class ScaffoldGenerator:
 
                         if is_user_fk:
                             user_fk_field = col_name
-                            print(f"  → Found user FK: {col_name}")  # DEBUG
+                            print(f"  → Found user FK: {col_name}")
                         else:
                             non_user_fk_count += 1
                             # Store the relationship info
@@ -233,53 +233,13 @@ class ScaffoldGenerator:
                         'target_model': target_model,
                         'backref': backref_match.group(1) if backref_match else None,
                         'back_populates': back_populates_match.group(1) if back_populates_match else None,
-                        'is_many_to_many': bool(secondary_match),  # NEW: Track many-to-many
+                        'is_many_to_many': bool(secondary_match),
                         'secondary_table': secondary_match.group(1) if secondary_match else None
                     })
 
-            # Check for missing foreign keys based on relationships
-            missing_fks = []
-            for rel in relationships:
-                # SKIP many-to-many relationships - they use association tables, not FK columns
-                if rel.get('is_many_to_many', False):
-                    print(f"  → Skipping many-to-many relationship: {rel['name']} -> {rel['target_model']} (uses {rel['secondary_table']})")
-                    continue
-
-                # Get the correct table name using our helper method
-                target_table = self._get_table_name_for_model(rel['target_model'], {})
-
-                # Determine expected foreign key column name
-                # If this model has a backref on the relationship, the FK should be on this model
-                # The FK column name should be: backref_name + '_id'
-                if rel['backref']:
-                    expected_fk_col = f"{rel['backref']}_id"
-                elif rel['back_populates']:
-                    expected_fk_col = f"{rel['back_populates']}_id"
-                else:
-                    # If no backref/back_populates, use the target table name + '_id'
-                    expected_fk_col = f"{target_table}_id"
-
-                # Skip if this relationship already has a corresponding FK column
-                has_corresponding_fk = any(
-                    fk['ref_table'] == target_table for fk in foreign_key_relationships
-                )
-
-                if has_corresponding_fk:
-                    print(f"  → Relationship {rel['name']} already has FK to {target_table}")
-                    continue
-
-                # Check if the expected foreign key column exists
-                if expected_fk_col not in fields:
-                    missing_fks.append({
-                        'relationship_name': rel['name'],
-                        'target_model': rel['target_model'],
-                        'missing_fk_column': expected_fk_col,
-                        'target_table': target_table
-                    })
-                    print(f"  → Missing FK detected: {expected_fk_col} -> {target_table}.id (from relationship {rel['name']})")
-                else:
-                    print(f"  → FK already exists: {expected_fk_col} (from relationship {rel['name']})")
-
+            # REMOVED: Missing FK detection logic - trust the user's existing model definitions
+            # The relationships are for reference only, not for auto-generating FK columns
+            
             # Create mock model info
             model_info = {
                 'name': class_name,
@@ -288,12 +248,13 @@ class ScaffoldGenerator:
                 'primary_key': next((name for name, info in fields.items() if info.get('primary_key')), 'id'),
                 'user_fk_field': user_fk_field,
                 'non_user_fk_count': non_user_fk_count,
-                'foreign_key_relationships': foreign_key_relationships,  # ← NEW
-                'relationships': relationships,  # ← NEW
-                'missing_foreign_keys': missing_fks  # ← NEW: Track missing FKs
+                'foreign_key_relationships': foreign_key_relationships,
+                'relationships': relationships,
+                'missing_foreign_keys': []  # Always empty - we won't auto-add FKs
             }           
-            # DEBUG
+            
             print(f"  DEBUG {class_name}: user_fk_field={user_fk_field}, non_user_fk_count={non_user_fk_count}")            
+            
             # Store as dict instead of class for manual parsing
             self.models.append(type('Model', (), {
                 '__name__': class_name,
@@ -350,7 +311,7 @@ class ScaffoldGenerator:
             
         # Check for default
         if 'default=datetime.utcnow' in col_def:
-            field_info['default'] = 'datetime.utcnow' # Store as string
+            field_info['default'] = 'datetime.utcnow'
         
         # Skip ForeignKey columns in forms
         if 'ForeignKey' in col_def:
@@ -442,56 +403,13 @@ class ScaffoldGenerator:
                     'target_model': target_model,
                     'backref': backref,
                     'back_populates': back_populates,
-                    'is_many_to_many': secondary is not None,  # NEW: Track many-to-many
+                    'is_many_to_many': secondary is not None,
                     'secondary_table': getattr(secondary, 'name', None) if secondary else None
                 })
 
-        # Check for missing foreign keys based on relationships
-        missing_fks = []
-        for rel in relationships:
-            # SKIP many-to-many relationships - they use association tables, not FK columns
-            if rel.get('is_many_to_many', False):
-                print(f"  → Skipping many-to-many relationship: {rel['name']} -> {rel['target_model']} (uses {rel['secondary_table']})")
-                continue
-
-            # Get the correct table name using our helper method
-            target_table = self._get_table_name_for_model(rel['target_model'], {})
-
-            # Determine expected foreign key column name
-            # If this model has a backref on the relationship, the FK should be on this model
-            # The FK column name should be: backref_name + '_id'
-            if rel['backref']:
-                expected_fk_col = f"{rel['backref']}_id"
-            elif rel['back_populates']:
-                expected_fk_col = f"{rel['back_populates']}_id"
-            else:
-                # If no backref/back_populates, use the target table name + '_id'
-                expected_fk_col = f"{target_table}_id"
-
-            # Skip if this relationship already has a corresponding FK column
-            has_corresponding_fk = any(
-                fk['ref_table'] == target_table for fk in foreign_key_relationships
-            )
-
-            if has_corresponding_fk:
-                print(f"  → Relationship {rel['name']} already has FK to {target_table}")
-                continue
-
-            # Check if the expected foreign key column exists
-            if expected_fk_col not in fields:
-                missing_fks.append({
-                    'relationship_name': rel['name'],
-                    'target_model': rel['target_model'],
-                    'missing_fk_column': expected_fk_col,
-                    'target_table': target_table
-                })
-                print(f"  → Missing FK detected: {expected_fk_col} -> {target_table}.id (from relationship {rel['name']})")
-            else:
-                print(f"  → FK already exists: {expected_fk_col} (from relationship {rel['name']})")
-
+        # REMOVED: Missing FK detection logic - trust the user's existing model definitions
+        
         print(f"DEBUG {model.__name__}: user_fk_field={user_fk_field}, non_user_fk_count={non_user_fk_count}")
-        if missing_fks:
-            print(f"  WARNING {model.__name__}: Missing foreign keys: {[fk['missing_fk_column'] for fk in missing_fks]}")
 
         return {
             'name': model.__name__,
@@ -501,8 +419,8 @@ class ScaffoldGenerator:
             'user_fk_field': user_fk_field,
             'non_user_fk_count': non_user_fk_count,
             'foreign_key_relationships': foreign_key_relationships,
-            'relationships': relationships,  # ← NEW
-            'missing_foreign_keys': missing_fks  # ← NEW
+            'relationships': relationships,
+            'missing_foreign_keys': []  # Always empty - we won't auto-add FKs
         }
 
     def _find_child_models(self, parent_info: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -558,7 +476,6 @@ class ScaffoldGenerator:
             wtf_type = self.TYPE_MAPPING.get(field_info['type'], 'StringField')
             validators = []
             
-            # --- UPDATED LOGIC ---
             # Handle BooleanField: always optional
             if field_info['type'] == 'Boolean':
                 validators.append('Optional()')
@@ -567,16 +484,15 @@ class ScaffoldGenerator:
                 validators.append('DataRequired()')
             else:
                 validators.append('Optional()')
-            # --- END UPDATED LOGIC ---
             
             # Add length validator for strings
             if 'max_length' in field_info and field_info['max_length']:
                 validators.append(f"Length(max={field_info['max_length']})")
             
-            # Special field handling - be more specific to avoid false matches
+            # Special field handling
             if field_name.lower().endswith('email') or 'email_address' in field_name.lower():
                 wtf_type = 'EmailField'
-                if 'Email()' not in validators: # Avoid duplicates
+                if 'Email()' not in validators:
                     validators.append('Email()')
             elif field_name.lower().endswith('url') or 'website' in field_name.lower():
                 wtf_type = 'URLField'
@@ -664,19 +580,14 @@ class {model_name}Form(FlaskForm):
         # --- Create Route Generation ---
         create_route_content = ""
         if non_user_fk_count > 0:
-            # This is a "child" model (like Comment) that depends on a parent (like Product).
-            # A simple /create route is not feasible as it lacks the parent's ID.
             create_route_content = f'''
 # --- NOTE: 'create' route commented out by scaffold generator ---
 # This model appears to be a "child" model (it has {non_user_fk_count} foreign key(s)
 # to models other than User). A simple '/create' route is not
-# practical because it requires context from a "parent" object
-# (e.g., a Comment needs a Product ID).
+# practical because it requires context from a "parent" object.
 #
 # You should handle the creation of this object within the
 # "view" or "edit" route of its parent model.
-# (e.g., add a comment form to the 'view_product' page).
-#
 #
 # @{blueprint_name}_bp.route('/create', methods=['GET', 'POST'])
 # @login_required
@@ -689,9 +600,8 @@ class {model_name}Form(FlaskForm):
 #             item = {model_name}()
 #             form.populate_obj(item)
 #             
-#             # This would require parent IDs from the URL, e.g.:
-#             # item.product_id = request.args.get('product_id')
-#             {f"item.{user_fk_field} = current_user.id" if user_fk_field else ""}
+#             # This would require parent IDs from the URL
+#             {f"#             item.{user_fk_field} = current_user.id" if user_fk_field else "#"}
 #             
 #             db.session.add(item)
 #             db.session.commit()
@@ -710,8 +620,6 @@ class {model_name}Form(FlaskForm):
 #     )
 '''
         else:
-            # This is a "top-level" model (like Task or User).
-            # A simple /create route is fine.
             create_route_content = f'''
 @{blueprint_name}_bp.route('/create', methods=['GET', 'POST'])
 @login_required
@@ -743,8 +651,7 @@ def create_{blueprint_name}():
     )
 '''
         
-        # --- NEW: Security Check Snippets ---
-        # Create a re-usable security check block
+        # Security check block
         security_check_block = ""
         if user_fk_field:
             security_check_block = f'''
@@ -756,11 +663,9 @@ def create_{blueprint_name}():
 
         list_query = f"items = {model_name}.query.all()"
         if user_fk_field:
-            # If the model belongs to a user, only list their items
             list_query = f"items = {model_name}.query.filter_by({user_fk_field}=current_user.id).all()"
         
         
-        # --- Full Routes File Content ---
         routes_content = f'''"""
 Routes for {model_name} blueprint.
 Auto-generated by Flask Scaffold Generator.
@@ -854,46 +759,8 @@ def delete_{blueprint_name}({pk_field}):
 {additional_child_routes}
 '''
 
-        # Format the routes content with all variables
-        try:
-            formatted_routes_content = routes_content.format(
-                model_name=model_name,
-                blueprint_name=blueprint_name,
-                pk_field=pk_field,
-                user_fk_field=user_fk_field,
-                non_user_fk_count=non_user_fk_count,
-                table_fields=display_fields[:5],  # Limit to first 5 fields for table
-                display_fields=display_fields,
-                create_route_content=create_route_content,
-                list_query=list_query,
-                security_check_block=security_check_block,
-                view_route_child_queries=view_route_child_queries,
-                view_template_child_params=view_template_child_params,
-                additional_child_routes=additional_child_routes,
-                model_import_string=model_import_string
-            )
-        except KeyError as e:
-            print(f"DEBUG: KeyError formatting routes for {model_name}: {e}")
-            print(f"DEBUG: Available variables: model_name={model_name}, blueprint_name={blueprint_name}")
-            print(f"DEBUG: display_fields={display_fields}")
-            print(f"DEBUG: child_models={child_models}")
-            # Show all lines with potential template variables
-            lines = routes_content.split('\n')
-            print("DEBUG: Searching for problematic template variables...")
-            for i, line in enumerate(lines):
-                if '{' in line and '}' in line and not line.strip().startswith('#'):
-                    # Check if it contains unescaped braces
-                    if '{{' not in line and '{%' not in line:
-                        print(f"DEBUG: Potential issue at line {i+1}: {line.strip()}")
-                        # Show what variable it's looking for
-                        import re
-                        matches = re.findall(r'\{([^}]+)\}', line)
-                        for match in matches:
-                            print(f"  -> Looking for variable: '{match}'")
-            raise
-
         routes_file = blueprint_dir / 'routes.py'
-        routes_file.write_text(formatted_routes_content)
+        routes_file.write_text(routes_content)
         print(f"  ✓ Generated {routes_file}")
 
     def generate_parent_child_routes(self, parent_info: Dict, child_info: Dict,
@@ -908,10 +775,8 @@ def delete_{blueprint_name}({pk_field}):
         child_pk = child_info['primary_key']
         user_fk_field = child_info.get('user_fk_field')
 
-        # Generate singular name for routes (e.g., "products" -> "product")
         child_table_singular_name = child_table[:-1] if child_table.endswith('s') else child_table
 
-        # This gets appended to the parent's routes.py
         additional_routes = f'''
 
 # ============================================================
@@ -924,7 +789,6 @@ def add_{child_table}_to_{parent_table}({parent_pk}):
     """Add a {child_name} to this {parent_name}."""
     parent = {parent_name}.query.get_or_404({parent_pk})
 
-    # Import child form (model already imported at top)
     from {child_table}.forms import {child_name}Form
 
     form = {child_name}Form()
@@ -934,7 +798,6 @@ def add_{child_table}_to_{parent_table}({parent_pk}):
             item = {child_name}()
             form.populate_obj(item)
 
-            # Set foreign keys
             item.{fk_field} = {parent_pk}
             {f"item.{user_fk_field} = current_user.id" if user_fk_field else ""}
 
@@ -950,7 +813,7 @@ def add_{child_table}_to_{parent_table}({parent_pk}):
     return render_template(
         '{child_table}/form.html',
         form=form,
-        title=f'Add {child_name} to {{{{ getattr(parent, 'name', getattr(parent, 'title', getattr(parent, 'company_name', getattr(parent, 'username', str(parent))))) }}}}',
+        title=f"Add {child_name} to {{getattr(parent, 'name', None) or getattr(parent, 'title', None) or getattr(parent, 'company_name', None) or getattr(parent, 'username', str(parent))}}",
         action='create'
     )
 '''
@@ -982,28 +845,19 @@ __all__ = ['{blueprint_name}_bp']
         pk_field = model_info['primary_key']
         non_user_fk_count = model_info.get('non_user_fk_count', 0)
         
-        # Create template directories
         template_dir = self.templates_dir / blueprint_name
         template_dir.mkdir(parents=True, exist_ok=True)
         
         macros_dir = template_dir / 'macros'
         macros_dir.mkdir(exist_ok=True)
         
-        # Get display fields
         display_fields = [f for f in model_info['fields'].keys() 
                          if not model_info['fields'][f].get('primary_key') and
                          not model_info['fields'][f].get('skip_in_form')]
         
-        # Generate list.html
         self._generate_list_template(template_dir, model_info, display_fields, non_user_fk_count)
-        
-        # Generate form.html
         self._generate_form_template(template_dir, model_info, non_user_fk_count)
-        
-        # Generate view.html
         self._generate_view_template(template_dir, model_info)
-        
-        # Generate macros
         self._generate_macros(macros_dir, model_info)
     
     def _generate_list_template(self, template_dir: Path, model_info: Dict, display_fields: List[str], non_user_fk_count: int):
@@ -1012,10 +866,8 @@ __all__ = ['{blueprint_name}_bp']
         model_name = model_info['name']
         pk_field = model_info['primary_key']
         
-        # Limit display fields to first 5
         table_fields = display_fields[:5]
         
-        # Adjust "Create" button/text based on if it's a child model
         if non_user_fk_count > 0:
             create_button = f'''<!-- 'Create New' button disabled for child models -->
         <!-- You must create {model_name} records from a parent object's page. -->'''
@@ -1092,8 +944,6 @@ __all__ = ['{blueprint_name}_bp']
         blueprint_name = model_info['table_name']
         model_name = model_info['name']
         
-        # Add a note if this is a child model, since the form won't work
-        # from the commented-out /create route.
         child_model_note = ""
         if non_user_fk_count > 0:
             child_model_note = f'''
@@ -1140,14 +990,12 @@ __all__ = ['{blueprint_name}_bp']
         model_name = model_info['name']
         pk_field = model_info['primary_key']
 
-        # Check for child models
         child_models = self._find_child_models(model_info)
 
         child_sections = []
         for child_info in child_models:
             child_table = child_info['table_name']
             child_name = child_info['name']
-            # Get first few display fields for the child
             display_fields = [f for f in child_info['fields'].keys()
                              if not child_info['fields'][f].get('primary_key')][:3]
 
@@ -1248,7 +1096,6 @@ __all__ = ['{blueprint_name}_bp']
     def _generate_macros(self, macros_dir: Path, model_info: Dict):
         """Generate Jinja2 macros for forms and display."""
         
-        # Generate forms.html macro
         forms_macro = '''{% macro render_form(form, action="", method="post", submit_text="Submit", cancel_url=None) %}
 <form method="{{ method }}" action="{{ action }}" novalidate>
     {{ form.hidden_tag() }}
@@ -1303,7 +1150,6 @@ __all__ = ['{blueprint_name}_bp']
         (macros_dir / 'forms.html').write_text(forms_macro)
         print(f"  ✓ Generated {macros_dir}/forms.html")
         
-        # Generate display.html macro
         display_macro = '''{% macro display_model(obj, fields=None, exclude=None) %}
 <dl class="row mb-0">
     {% if obj is mapping %}
@@ -1325,7 +1171,7 @@ __all__ = ['{blueprint_name}_bp']
     {% if value is none %}
         <em class="text-muted">Not set</em>
     {% elif value is sameas true %}
-        <span classall="badge bg-success">Yes</span>
+        <span class="badge bg-success">Yes</span>
     {% elif value is sameas false %}
         <span class="badge bg-secondary">No</span>
     {% elif value.__class__.__name__ == 'datetime' %}
@@ -1418,78 +1264,12 @@ __all__ = ['{blueprint_name}_bp']
         print(f"  ✓ Generated {base_template_path}")
     
     def fix_missing_foreign_keys(self):
-        """Add missing foreign key columns to models.py file."""
-        models_path = self.app_dir / 'models.py'
-
-        if not models_path.exists():
-            print(f"  ⚠️  models.py not found at {models_path}")
-            return
-
-        # Read existing models.py content
-        content = models_path.read_text()
-        lines = content.split('\n')
-
-        # Check each model for missing foreign keys
-        for model in self.models:
-            model_info = self.extract_model_info(model)
-            missing_fks = model_info.get('missing_foreign_keys', [])
-
-            if missing_fks:
-                class_name = model_info['name']
-                print(f"\n  Fixing missing foreign keys in {class_name}:")
-
-                # Find the class definition in the file
-                class_start = -1
-                for i, line in enumerate(lines):
-                    if line.strip().startswith(f'class {class_name}('):
-                        class_start = i
-                        break
-
-                if class_start == -1:
-                    print(f"    ⚠️  Could not find {class_name} class in models.py")
-                    continue
-
-                # Find the end of the class (next class or end of file)
-                class_end = len(lines)
-                for i in range(class_start + 1, len(lines)):
-                    if lines[i].strip().startswith('class ') and not lines[i].strip().startswith('class '):
-                        class_end = i
-                        break
-
-                # Find where to insert the missing foreign key columns
-                # Look for the last db.Column definition in the class
-                insert_index = class_start + 1
-                last_column_index = class_start
-
-                for i in range(class_start + 1, class_end):
-                    if '= db.Column(' in lines[i]:
-                        last_column_index = i
-
-                if last_column_index > class_start:
-                    insert_index = last_column_index + 1
-
-                # Insert missing foreign key columns
-                for missing_fk in missing_fks:
-                    # Safety check: make sure this column doesn't already exist
-                    column_exists = False
-                    for line in lines[class_start:class_end]:
-                        if f"{missing_fk['missing_fk_column']} = db.Column(" in line:
-                            column_exists = True
-                            break
-
-                    if column_exists:
-                        print(f"    ⚠️  Column {missing_fk['missing_fk_column']} already exists, skipping...")
-                        continue
-
-                    fk_line = f"    {missing_fk['missing_fk_column']} = db.Column(db.Integer, db.ForeignKey('{missing_fk['target_table']}.id'), nullable=False)"
-                    lines.insert(insert_index, fk_line)
-                    insert_index += 1
-                    print(f"    ✓ Added {missing_fk['missing_fk_column']} foreign key column")
-
-        # Write the updated content back to models.py
-        updated_content = '\n'.join(lines)
-        models_path.write_text(updated_content)
-        print(f"\n  ✓ Updated models.py with missing foreign key columns")
+        """
+        DISABLED: This method no longer modifies models.py.
+        The generator now trusts your existing model definitions.
+        """
+        print("  ℹ️  Skipping automatic foreign key addition (now disabled)")
+        print("     The generator trusts your existing model relationships.")
 
     def update_app_file(self):
         """Generate instructions for updating app.py with new blueprints."""
@@ -1497,7 +1277,6 @@ __all__ = ['{blueprint_name}_bp']
         print("SETUP INSTRUCTIONS")
         print("="*60)
         
-        # Check if extensions.py exists
         extensions_file = self.app_dir / 'extensions.py'
         if not extensions_file.exists():
             print("\n⚠️  IMPORTANT: Create app/extensions.py first!")
@@ -1525,50 +1304,40 @@ login_manager.login_view = 'auth.login'
             print(f"  ⚠️  models.py not found at {models_path}")
             return
 
-        # Read existing models.py content
         content = models_path.read_text()
 
-        # Check if User model already exists
         if 'class User(UserMixin, db.Model):' in content:
             print("  ✓ User model already exists in models.py")
             return
 
-        # Check for required imports
         required_imports = [
             'from flask_login import UserMixin',
             'from werkzeug.security import generate_password_hash, check_password_hash'
         ]
 
-        # Add missing imports
         lines = content.split('\n')
         import_lines = []
         existing_imports = set()
 
-        # Find existing imports
         for line in lines:
             if line.strip().startswith('from ') or line.strip().startswith('import '):
                 existing_imports.add(line.strip())
 
-        # Add required imports if they don't exist
         for import_line in required_imports:
             if import_line not in existing_imports:
                 import_lines.append(import_line)
 
         if import_lines:
-            # Find the last import line and add new imports after it
             last_import_index = -1
             for i, line in enumerate(lines):
                 if line.strip().startswith('from ') or line.strip().startswith('import '):
                     last_import_index = i
 
             if last_import_index >= 0:
-                # Insert after the last import
                 lines[last_import_index+1:last_import_index+1] = import_lines + ['']
             else:
-                # Add at the beginning if no imports found
                 lines[0:0] = import_lines + ['']
 
-        # Add User model at the end of the file
         user_model_code = '''
 
 class User(UserMixin, db.Model):
@@ -1584,10 +1353,8 @@ class User(UserMixin, db.Model):
         return check_password_hash(self.password_hash, password)
 '''
 
-        # Append the User model
         lines.append(user_model_code)
 
-        # Write the updated content back to models.py
         updated_content = '\n'.join(lines)
         models_path.write_text(updated_content)
         print("  ✓ Added User model to models.py")
@@ -1623,8 +1390,7 @@ class User(UserMixin, db.Model):
         print("""
 from flask import Flask
 from flask_cors import CORS
-from extensions import db, login_manager  # Import from extensions
-# Make sure to import your User model for the user_loader
+from extensions import db, login_manager
 from models import User
 
 def create_app():
@@ -1632,7 +1398,6 @@ def create_app():
 
     # ... app configuration ...
 
-    # Initialize extensions
     db.init_app(app)
     login_manager.init_app(app)
 
@@ -1722,4 +1487,3 @@ def create_app():
 if __name__ == '__main__':
     generator = ScaffoldGenerator()
     generator.run()
-

@@ -42,19 +42,12 @@ class Product(db.Model):
     description = db.Column(db.Text, nullable=True)
     price = db.Column(db.Numeric(10, 2), nullable=False)
     stock = db.Column(db.Integer, default=0, nullable=False)
-    # This field will be skipped in the form (default=datetime.utcnow)
     date_added = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    # This field will be auto-populated by current_user.id
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    # This field will be skipped in the form (ForeignKey)
+    author = db.relationship('User', foreign_keys=[user_id])
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'), nullable=True)
-    author = db.relationship('User', 
-                             backref=db.backref('products', 
-                                                lazy=True, 
-                                                cascade='all, delete-orphan'))
     category = db.relationship('Category', 
-                               backref=db.backref('products', 
-                                                  lazy=True))
+                               backref=db.backref('products', lazy=True))
 
     def __repr__(self):
         return f'<Product {self.name}>'
