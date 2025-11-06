@@ -1,8 +1,4 @@
 from flask import Flask
-from tasks import tasks_bp
-from products import products_bp
-from categories import categories_bp
-from users import users_bp
 from flask_cors import CORS
 from flask_login import LoginManager
 from flask_sqlalchemy import SQLAlchemy
@@ -27,6 +23,10 @@ def create_app():
     def load_user(user_id):
         return User.query.get(int(user_id))
 
+    from tasks import tasks_bp
+    from products import products_bp
+    from categories import categories_bp
+    from users import users_bp
     # Register Blueprints
     app.register_blueprint(products_bp)
     app.register_blueprint(categories_bp)

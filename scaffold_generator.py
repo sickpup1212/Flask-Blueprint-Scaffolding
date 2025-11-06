@@ -94,9 +94,31 @@ class ScaffoldGenerator:
         
         print(f"Discovered {len(self.models)} models: {[m.__name__ for m in self.models]}")
     
+    def _get_table_name_for_model(self, model_name: str, all_models_info: Dict[str, Dict]) -> str:
+        """Get the correct table name for a model by looking up its __tablename__."""
+        # First, try to find the model in our parsed models
+        for model in self.models:
+            if hasattr(model, '__name__') and model.__name__ == model_name:
+                if hasattr(model, '__tablename__'):
+                    return model.__tablename__
+                elif hasattr(model, '_parsed_info'):
+                    return model._parsed_info['table_name']
+
+        # Fallback: try to find it in all_models_info
+        if model_name in all_models_info:
+            return all_models_info[model_name]['table_name']
+
+        # Last resort: guess the table name (common patterns)
+        if model_name.endswith('s'):
+            return model_name.lower() + 'es'  # class -> classes
+        elif model_name.endswith('y'):
+            return model_name[:-1].lower() + 'ies'  # category -> categories
+        else:
+            return model_name.lower() + 's'  # user -> users, project -> projects
+
     def _parse_models_from_file(self, models_path: Path):
         """Parse models.py file manually to extract model information."""
-        import re        
+        import re  
         content = models_path.read_text()        
         # Find all class definitions that inherit from db.Model
         class_pattern = r'class\s+(\w+)\([^)]*db\.Model[^)]*\):'
@@ -162,6 +184,7 @@ class ScaffoldGenerator:
             user_fk_field = None
             non_user_fk_count = 0
             foreign_key_relationships = []  # ← NEW: Track FK relationships
+            relationships = []  # ← NEW: Track db.relationship() declarations
 
             for col_name, col_def in column_lines:
                 # Parse column definition
@@ -188,6 +211,75 @@ class ScaffoldGenerator:
                                 'ref_table': ref_table,
                                 'ref_column': ref_column
                             })            
+            # Parse db.relationship() declarations
+            relationship_lines = re.findall(r'^\s*(\w+)\s*=\s*db\.relationship\((.*?)\)',
+                                          class_content, re.MULTILINE | re.DOTALL)
+
+            for rel_name, rel_def in relationship_lines:
+                # Extract the target model from relationship definition
+                target_match = re.search(r"'(\w+)'", rel_def)
+                if target_match:
+                    target_model = target_match.group(1)
+
+                    # Check for backref or back_populates
+                    backref_match = re.search(r'backref\s*=\s*[\'"](\w+)[\'"]', rel_def)
+                    back_populates_match = re.search(r'back_populates\s*=\s*[\'"](\w+)[\'"]', rel_def)
+
+                    # Check for many-to-many relationship (secondary table)
+                    secondary_match = re.search(r'secondary\s*=\s*[\'"]?(\w+)[\'"]?', rel_def)
+
+                    relationships.append({
+                        'name': rel_name,
+                        'target_model': target_model,
+                        'backref': backref_match.group(1) if backref_match else None,
+                        'back_populates': back_populates_match.group(1) if back_populates_match else None,
+                        'is_many_to_many': bool(secondary_match),  # NEW: Track many-to-many
+                        'secondary_table': secondary_match.group(1) if secondary_match else None
+                    })
+
+            # Check for missing foreign keys based on relationships
+            missing_fks = []
+            for rel in relationships:
+                # SKIP many-to-many relationships - they use association tables, not FK columns
+                if rel.get('is_many_to_many', False):
+                    print(f"  → Skipping many-to-many relationship: {rel['name']} -> {rel['target_model']} (uses {rel['secondary_table']})")
+                    continue
+
+                # Get the correct table name using our helper method
+                target_table = self._get_table_name_for_model(rel['target_model'], {})
+
+                # Determine expected foreign key column name
+                # If this model has a backref on the relationship, the FK should be on this model
+                # The FK column name should be: backref_name + '_id'
+                if rel['backref']:
+                    expected_fk_col = f"{rel['backref']}_id"
+                elif rel['back_populates']:
+                    expected_fk_col = f"{rel['back_populates']}_id"
+                else:
+                    # If no backref/back_populates, use the target table name + '_id'
+                    expected_fk_col = f"{target_table}_id"
+
+                # Skip if this relationship already has a corresponding FK column
+                has_corresponding_fk = any(
+                    fk['ref_table'] == target_table for fk in foreign_key_relationships
+                )
+
+                if has_corresponding_fk:
+                    print(f"  → Relationship {rel['name']} already has FK to {target_table}")
+                    continue
+
+                # Check if the expected foreign key column exists
+                if expected_fk_col not in fields:
+                    missing_fks.append({
+                        'relationship_name': rel['name'],
+                        'target_model': rel['target_model'],
+                        'missing_fk_column': expected_fk_col,
+                        'target_table': target_table
+                    })
+                    print(f"  → Missing FK detected: {expected_fk_col} -> {target_table}.id (from relationship {rel['name']})")
+                else:
+                    print(f"  → FK already exists: {expected_fk_col} (from relationship {rel['name']})")
+
             # Create mock model info
             model_info = {
                 'name': class_name,
@@ -196,7 +288,9 @@ class ScaffoldGenerator:
                 'primary_key': next((name for name, info in fields.items() if info.get('primary_key')), 'id'),
                 'user_fk_field': user_fk_field,
                 'non_user_fk_count': non_user_fk_count,
-                'foreign_key_relationships': foreign_key_relationships  # ← NEW
+                'foreign_key_relationships': foreign_key_relationships,  # ← NEW
+                'relationships': relationships,  # ← NEW
+                'missing_foreign_keys': missing_fks  # ← NEW: Track missing FKs
             }           
             # DEBUG
             print(f"  DEBUG {class_name}: user_fk_field={user_fk_field}, non_user_fk_count={non_user_fk_count}")            
@@ -329,7 +423,76 @@ class ScaffoldGenerator:
                                 'ref_column': ref_column
                             })
 
+        # Extract relationships for live models using SQLAlchemy inspection
+        relationships = []
+        if hasattr(model, '__mapper__') and hasattr(model.__mapper__, 'relationships'):
+            for rel in model.__mapper__.relationships:
+                # Get the target model name
+                target_model = rel.entity.class_.__name__ if hasattr(rel.entity, 'class_') else str(rel.entity)
+
+                # Check for backref or back_populates
+                backref = getattr(rel, 'backref', None)
+                back_populates = getattr(rel, 'back_populates', None)
+
+                # Check for many-to-many relationship (secondary table)
+                secondary = getattr(rel, 'secondary', None)
+
+                relationships.append({
+                    'name': rel.key,
+                    'target_model': target_model,
+                    'backref': backref,
+                    'back_populates': back_populates,
+                    'is_many_to_many': secondary is not None,  # NEW: Track many-to-many
+                    'secondary_table': getattr(secondary, 'name', None) if secondary else None
+                })
+
+        # Check for missing foreign keys based on relationships
+        missing_fks = []
+        for rel in relationships:
+            # SKIP many-to-many relationships - they use association tables, not FK columns
+            if rel.get('is_many_to_many', False):
+                print(f"  → Skipping many-to-many relationship: {rel['name']} -> {rel['target_model']} (uses {rel['secondary_table']})")
+                continue
+
+            # Get the correct table name using our helper method
+            target_table = self._get_table_name_for_model(rel['target_model'], {})
+
+            # Determine expected foreign key column name
+            # If this model has a backref on the relationship, the FK should be on this model
+            # The FK column name should be: backref_name + '_id'
+            if rel['backref']:
+                expected_fk_col = f"{rel['backref']}_id"
+            elif rel['back_populates']:
+                expected_fk_col = f"{rel['back_populates']}_id"
+            else:
+                # If no backref/back_populates, use the target table name + '_id'
+                expected_fk_col = f"{target_table}_id"
+
+            # Skip if this relationship already has a corresponding FK column
+            has_corresponding_fk = any(
+                fk['ref_table'] == target_table for fk in foreign_key_relationships
+            )
+
+            if has_corresponding_fk:
+                print(f"  → Relationship {rel['name']} already has FK to {target_table}")
+                continue
+
+            # Check if the expected foreign key column exists
+            if expected_fk_col not in fields:
+                missing_fks.append({
+                    'relationship_name': rel['name'],
+                    'target_model': rel['target_model'],
+                    'missing_fk_column': expected_fk_col,
+                    'target_table': target_table
+                })
+                print(f"  → Missing FK detected: {expected_fk_col} -> {target_table}.id (from relationship {rel['name']})")
+            else:
+                print(f"  → FK already exists: {expected_fk_col} (from relationship {rel['name']})")
+
         print(f"DEBUG {model.__name__}: user_fk_field={user_fk_field}, non_user_fk_count={non_user_fk_count}")
+        if missing_fks:
+            print(f"  WARNING {model.__name__}: Missing foreign keys: {[fk['missing_fk_column'] for fk in missing_fks]}")
+
         return {
             'name': model.__name__,
             'table_name': model.__tablename__,
@@ -337,7 +500,9 @@ class ScaffoldGenerator:
             'primary_key': primary_key or 'id',
             'user_fk_field': user_fk_field,
             'non_user_fk_count': non_user_fk_count,
-            'foreign_key_relationships': foreign_key_relationships
+            'foreign_key_relationships': foreign_key_relationships,
+            'relationships': relationships,  # ← NEW
+            'missing_foreign_keys': missing_fks  # ← NEW
         }
 
     def _find_child_models(self, parent_info: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -408,16 +573,16 @@ class ScaffoldGenerator:
             if 'max_length' in field_info and field_info['max_length']:
                 validators.append(f"Length(max={field_info['max_length']})")
             
-            # Special field handling
-            if 'email' in field_name.lower():
+            # Special field handling - be more specific to avoid false matches
+            if field_name.lower().endswith('email') or 'email_address' in field_name.lower():
                 wtf_type = 'EmailField'
                 if 'Email()' not in validators: # Avoid duplicates
                     validators.append('Email()')
-            elif 'url' in field_name.lower():
+            elif field_name.lower().endswith('url') or 'website' in field_name.lower():
                 wtf_type = 'URLField'
                 if 'URL()' not in validators:
                     validators.append('URL()')
-            elif 'password' in field_name.lower():
+            elif field_name.lower().endswith('password') or 'pwd' in field_name.lower():
                 wtf_type = 'PasswordField'
             
             validators_str = ', '.join(validators)
@@ -785,7 +950,7 @@ def add_{child_table}_to_{parent_table}({parent_pk}):
     return render_template(
         '{child_table}/form.html',
         form=form,
-        title=f'Add {child_name} to {{{{parent.name}}}}',
+        title=f'Add {child_name} to {{{{ getattr(parent, 'name', getattr(parent, 'title', getattr(parent, 'company_name', getattr(parent, 'username', str(parent))))) }}}}',
         action='create'
     )
 '''
@@ -1252,6 +1417,80 @@ __all__ = ['{blueprint_name}_bp']
         base_template_path.write_text(base_template)
         print(f"  ✓ Generated {base_template_path}")
     
+    def fix_missing_foreign_keys(self):
+        """Add missing foreign key columns to models.py file."""
+        models_path = self.app_dir / 'models.py'
+
+        if not models_path.exists():
+            print(f"  ⚠️  models.py not found at {models_path}")
+            return
+
+        # Read existing models.py content
+        content = models_path.read_text()
+        lines = content.split('\n')
+
+        # Check each model for missing foreign keys
+        for model in self.models:
+            model_info = self.extract_model_info(model)
+            missing_fks = model_info.get('missing_foreign_keys', [])
+
+            if missing_fks:
+                class_name = model_info['name']
+                print(f"\n  Fixing missing foreign keys in {class_name}:")
+
+                # Find the class definition in the file
+                class_start = -1
+                for i, line in enumerate(lines):
+                    if line.strip().startswith(f'class {class_name}('):
+                        class_start = i
+                        break
+
+                if class_start == -1:
+                    print(f"    ⚠️  Could not find {class_name} class in models.py")
+                    continue
+
+                # Find the end of the class (next class or end of file)
+                class_end = len(lines)
+                for i in range(class_start + 1, len(lines)):
+                    if lines[i].strip().startswith('class ') and not lines[i].strip().startswith('class '):
+                        class_end = i
+                        break
+
+                # Find where to insert the missing foreign key columns
+                # Look for the last db.Column definition in the class
+                insert_index = class_start + 1
+                last_column_index = class_start
+
+                for i in range(class_start + 1, class_end):
+                    if '= db.Column(' in lines[i]:
+                        last_column_index = i
+
+                if last_column_index > class_start:
+                    insert_index = last_column_index + 1
+
+                # Insert missing foreign key columns
+                for missing_fk in missing_fks:
+                    # Safety check: make sure this column doesn't already exist
+                    column_exists = False
+                    for line in lines[class_start:class_end]:
+                        if f"{missing_fk['missing_fk_column']} = db.Column(" in line:
+                            column_exists = True
+                            break
+
+                    if column_exists:
+                        print(f"    ⚠️  Column {missing_fk['missing_fk_column']} already exists, skipping...")
+                        continue
+
+                    fk_line = f"    {missing_fk['missing_fk_column']} = db.Column(db.Integer, db.ForeignKey('{missing_fk['target_table']}.id'), nullable=False)"
+                    lines.insert(insert_index, fk_line)
+                    insert_index += 1
+                    print(f"    ✓ Added {missing_fk['missing_fk_column']} foreign key column")
+
+        # Write the updated content back to models.py
+        updated_content = '\n'.join(lines)
+        models_path.write_text(updated_content)
+        print(f"\n  ✓ Updated models.py with missing foreign key columns")
+
     def update_app_file(self):
         """Generate instructions for updating app.py with new blueprints."""
         print("\n" + "="*60)
@@ -1464,8 +1703,12 @@ def create_app():
             print(f"  Generating templates for {blueprint_name}:")
             self.generate_templates(model_info)
         
+        # Fix missing foreign keys before generating blueprints
+        print("\n4. Checking for missing foreign keys...")
+        self.fix_missing_foreign_keys()
+
         # Add User model to models.py if it doesn't exist
-        print("\n4. Adding User model...")
+        print("\n5. Adding User model...")
         self.add_user_model()
 
         # Show blueprint registration instructions

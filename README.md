@@ -16,15 +16,24 @@ go look at app/models.py
 
 there are already three models in there you can use to test it out or you can put your own
 
-DO NOT PUT ANY SQLALCHEMY MODEL CLASS PERTAINING TO USER AUTHENTICATION
+!!!!if you put your own!!!!
 
-THE USERS CLASS THAT ALREADY EXISTS HAS AUTHENTICATION SET UP ALREADY
+  1. DO NOT PUT ANY SQLALCHEMY MODEL CLASS PERTAINING TO USER AUTHENTICATION OR NAMED 'User'
+     THERE IS A SINGLE MODEL/CLASS THAT ALREADY EXISTS CALLED 'User' tablename 'users'
+     AND IT HAS AUTHENTICATION SET UP ALREADY.  This wont show up in app/models.py until
+     after the scaffolding has been run.
+
+  2. make each of your model (sqlalchemy) classes a singular name (Product, or Client)
+     and make your \_\_tablename\_\_ the singular version (products, clients)
+     bp_name, model_table_name, \_\_tablename\_\_, blueprint_name are all the same thing: lower case and pluralized versions of your singluar named model/class 
 
 go back to root folder (cd ..)
 
 run scaffolding (python3 generate_scaffolding.py)
 
 now you have created a blueprint, a form.py, a routes.py, and 5 views/endpoints create, list, edit, view, delete for each model in your app/model.py
+
+you need to add 'from {bp_name} import {bp_name}_bp' statements and 'app.blueprint_register({bp_name}_bp)' methods to app/app.py before running the app and they need to go all within the create_app function. yes the imports go in the function.
 
 look inside the templates folder to see the .html files and macros for each model
 

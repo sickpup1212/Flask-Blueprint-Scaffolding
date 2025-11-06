@@ -8,3 +8,4 @@ Flask-Login
 flask-cors
 psycopg2-binary
 python-dotenv
+email-validator
